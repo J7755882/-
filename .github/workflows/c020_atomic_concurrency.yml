@@ -1,0 +1,73 @@
+name: C020 Atomic DEV Concurrency Evidence
+
+on:
+  push:
+    paths:
+      - '.github/workflows/c020_atomic_concurrency.yml'
+      - 'c020_dev/cross_process_runner.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  concurrency-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      LIPO_C020_DEV_DATABASE_URL: ${{ secrets.LIPO_ATOMIC_DEV_DATABASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PostgreSQL client dependency
+        run: python -m pip install --disable-pip-version-check 'psycopg[binary]>=3.2,<4'
+
+      - name: Verify secret is present without printing it
+        shell: bash
+        run: |
+          test -n "$LIPO_C020_DEV_DATABASE_URL" || { echo 'LIPO_ATOMIC_DEV_DATABASE_URL secret is missing'; exit 2; }
+          echo 'DEV database secret is present.'
+
+      - name: Run real multi-process concurrency tests
+        shell: bash
+        run: |
+          mkdir -p evidence
+          python c020_dev/cross_process_runner.py | tee evidence/C020_CONCURRENCY_RESULTS.json
+
+      - name: Enforce T01 T02 T03 T11 pass gate
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          p='evidence/C020_CONCURRENCY_RESULTS.json'
+          with open(p,encoding='utf-8') as f:
+              d=json.load(f)
+          required=['T01_PASS','T02_PASS','T03_PASS','T11_PASS']
+          failed=[k for k in required if d.get('evaluation',{}).get(k) is not True]
+          summary={
+              'T01_ok_count':d.get('T01',{}).get('ok_count'),
+              'T02_ok_count':d.get('T02',{}).get('ok_count'),
+              'T03_all_ok':d.get('T03',{}).get('all_ok'),
+              'T03_elapsed_sec':d.get('T03',{}).get('elapsed_sec'),
+              'T11_row_count':d.get('T11',{}).get('row_count'),
+              'evaluation':d.get('evaluation',{})
+          }
+          print(json.dumps(summary,indent=2))
+          if failed:
+              raise SystemExit('FAILED GATES: '+', '.join(failed))
+          PY
+
+      - name: Upload evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c020-atomic-dev-concurrency-evidence
+          path: evidence/C020_CONCURRENCY_RESULTS.json
+          if-no-files-found: error
+          retention-days: 7
