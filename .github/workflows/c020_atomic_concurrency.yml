@@ -5,6 +5,12 @@ on:
     paths:
       - '.github/workflows/c020_atomic_concurrency.yml'
       - 'c020_dev/cross_process_runner.py'
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/c020_atomic_concurrency.yml'
+      - 'c020_dev/cross_process_runner.py'
+      - 'c020_dev/trigger.txt'
   workflow_dispatch:
 
 permissions:
